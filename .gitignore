@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.vscode/
+.idea/
+
+# Archivos generados al usar la herramienta (no subir claves ni almacenes)
+*.keystore
+*.jks
+*.csr
+*.pem
+*.crt
