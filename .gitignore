@@ -1,2 +1,6 @@
-keystore.json
+.venv/
+__pycache__/
+*.keystore
 *.csr
+*.pem
+keystore.json
