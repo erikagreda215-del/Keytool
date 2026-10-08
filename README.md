@@ -1,21 +1,48 @@
-# Simulación CLI de Java Keytool en Python
+Keytool en Python
+Simulador de la herramienta keytool de Java desarrollado en Python.
 
-Aplicación en línea de comandos (CLI) desarrollada en Python que simula las funcionalidades esenciales de la herramienta `keytool` de Java, permitiendo la creación de pares de claves RSA y la generación de solicitudes de firma de certificados (CSR).
+INTEGRANTES
+Genesis
+Erik
 
-## Integrantes del Grupo
-* Genesis 
-* Erik
+Requisitos
+Python 3.10 o superior
+pip
+Instalación
+Clona el repositorio:
 
----
+git clone <URL_DEL_REPOSITORIO>
+cd Keytool
+Crea un entorno virtual:
 
-## Requisitos e Instalación
+Windows
+py -m venv .venv
+Activa el entorno virtual:
 
-### Prerrequisitos
-* Python 3.8 o superior.
-* Entorno virtual de Python (`venv`).
+.\.venv\Scripts\Activate.ps1
+Instala las dependencias:
 
-### Pasos de instalación
-1. Clonar el repositorio de GitHub:
-   ```bash
-   git clone <https://github.com/erikagreda215-del/Keytool>
-   cd Keytool
+python -m pip install -r requirements.txt
+Dependencias
+Las dependencias del proyecto están especificadas en requirements.txt:
+
+cryptography==50.0.2
+cffi==2.1.1
+pycparser==3.0
+No es necesario instalarlas manualmente si se ejecuta:
+
+python -m pip install -r requirements.txt
+Uso
+Para generar un par de claves RSA:
+
+python mykeytool.py --genkeypair
+Para generar una solicitud de certificado (CSR):
+
+python mykeytool.py --certreq
+Archivos principales
+mykeytool.py — programa principal.
+crypto_utils.py — funciones criptográficas.
+keystore.py — gestión del almacén de claves.
+requirements.txt — dependencias del proyecto.
+Notas
+El proyecto utiliza RSA de 2048 bits y SHA-256 para la generación de solicitudes de certificado.
