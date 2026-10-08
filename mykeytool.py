@@ -1,4 +1,3 @@
-"""Simulador básico de Java keytool (--genkeypair y --certreq)."""
 import argparse
 import base64
 import getpass
@@ -16,7 +15,6 @@ from cryptography.x509.oid import NameOID
 KEYSTORE_FILE = "keystore.json"
 
 
-# ---------- Utilidades de contraseña ----------
 def hash_password(password, salt=None):
     """Guarda la contraseña como hash PBKDF2 + sal (nunca en claro)."""
     salt = salt or os.urandom(16)
