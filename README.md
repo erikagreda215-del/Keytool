@@ -1,48 +1,62 @@
-Keytool en Python
-Simulador de la herramienta keytool de Java desarrollado en Python.
+# 🔑 Keytool en Python
 
-INTEGRANTES
-Genesis
-Erik
+> Simulador interactivo de la herramienta **`keytool`** de Java desarrollado en Python.
 
-Requisitos
-Python 3.10 o superior
-pip
-Instalación
-Clona el repositorio:
+---
 
-git clone <URL_DEL_REPOSITORIO>
+## 👥 Integrantes
+
+* **Genesis**
+* **Erik**
+
+---
+
+## 📋 Requisitos Previos
+
+Asegúrate de contar con lo siguiente instalado en tu sistema:
+
+* ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white) **Python 3.10** o superior
+* ![pip](https://img.shields.io/badge/pip-latest-blue?logo=pypi&logoColor=white) **pip** (gestor de paquetes de Python)
+
+---
+
+##  Instalación y Configuración
+
+Sigue estos pasos para clonar e instalar el proyecto en Windows:
+
+### 1. Clonar el repositorio
+
+git clone [https://github.com/erikagreda215-del/Keytool.git](https://github.com/erikagreda215-del/Keytool.git)
 cd Keytool
-Crea un entorno virtual:
 
-Windows
+## 2. Crear y activar el entorno virtual
+
+
+# Crear entorno virtual
 py -m venv .venv
-Activa el entorno virtual:
 
+# Activar entorno virtual (PowerShell)
 .\.venv\Scripts\Activate.ps1
-Instala las dependencias:
 
-python -m pip install -r requirements.txt
-Dependencias
-Las dependencias del proyecto están especificadas en requirements.txt:
+### 3. Instalar dependencias
 
-cryptography==50.0.2
-cffi==2.1.1
-pycparser==3.0
-No es necesario instalarlas manualmente si se ejecuta:
+   python -m pip install -r requirements.txt
 
-python -m pip install -r requirements.txt
-Uso
-Para generar un par de claves RSA:
+---
+## 📦 DependenciasEl proyecto utiliza las siguientes librerías especificadas en requirements.txt
+
+##  Uso
+
+Generar un par de claves RSA
 
 python mykeytool.py --genkeypair
-Para generar una solicitud de certificado (CSR):
+
+Generar una solicitud de certificado (CSR)
 
 python mykeytool.py --certreq
-Archivos principales
-mykeytool.py — programa principal.
-crypto_utils.py — funciones criptográficas.
-keystore.py — gestión del almacén de claves.
-requirements.txt — dependencias del proyecto.
-Notas
-El proyecto utiliza RSA de 2048 bits y SHA-256 para la generación de solicitudes de certificado.
+
+---
+
+### El proyecto implementa algoritmos RSA de 2048 bits para la generación de claves.
+
+### Utiliza SHA-256 para el firmado de las solicitudes de certificado (CSR)
