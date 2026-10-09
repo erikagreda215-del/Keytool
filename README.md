@@ -24,21 +24,21 @@ Asegúrate de contar con lo siguiente instalado en tu sistema:
 
 Sigue estos pasos para clonar e instalar el proyecto en Windows:
 
-### 1. Clonar el repositorio
+# 1. Clonar el repositorio
 
 git clone [https://github.com/erikagreda215-del/Keytool.git](https://github.com/erikagreda215-del/Keytool.git)
 cd Keytool
 
-## 2. Crear y activar el entorno virtual
+# 2. Crear y activar el entorno virtual
 
 
-# Crear entorno virtual
+## Crear entorno virtual
 py -m venv .venv
 
-# Activar entorno virtual (PowerShell)
+## Activar entorno virtual 
 .\.venv\Scripts\Activate.ps1
 
-### 3. Instalar dependencias
+# 3. Instalar dependencias
 
    python -m pip install -r requirements.txt
 
