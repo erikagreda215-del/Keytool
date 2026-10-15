@@ -1,41 +1,17 @@
 import argparse
-import base64
 import getpass
-import hashlib
-import hmac
-import json
 import os
 import sys
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
-
-KEYSTORE_FILE = "keystore.json"
-
-
-def hash_password(password, salt=None):
-    if salt is None:
-        salt = os.urandom(16)
-
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode(),
-        salt,
-        200_000
-    )
-
-    return {
-        "salt": base64.b64encode(salt).decode(),
-        "hash": base64.b64encode(digest).decode()
-    }
-
-
-def check_password(password, stored):
-    salt = base64.b64decode(stored["salt"])
-    new_hash = hash_password(password, salt)["hash"]
-    return hmac.compare_digest(new_hash, stored["hash"])
+import crypto_utils
+from keystore import (
+    KEYSTORE_FILE,
+    KeystoreError,
+    check_password,
+    create_keystore,
+    load_keystore,
+    save_keystore,
+)
 
 
 def ask_password(label):
@@ -57,42 +33,83 @@ def ask_password(label):
         return password
 
 
-def load_keystore():
-    if not os.path.exists(KEYSTORE_FILE):
-        return None
-
+def read_keystore():
+    """Carga el almacén; termina con un mensaje si está dañado."""
     try:
-        with open(KEYSTORE_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
+        return load_keystore()
+    except KeystoreError as error:
+        sys.exit(f"Error: {error}")
 
-        if "keystore_password" not in data or "keys" not in data:
-            raise ValueError
 
-        return data
+def open_keystore():
+    """Carga el almacén existente y comprueba su contraseña."""
+    keystore = read_keystore()
 
-    except (json.JSONDecodeError, ValueError, OSError):
+    if keystore is None:
         sys.exit(
-            f"Error: el almacén '{KEYSTORE_FILE}' está dañado o no se puede leer."
+            f"Error: no existe el almacén '{KEYSTORE_FILE}'. "
+            "Ejecuta primero --genkeypair."
         )
 
+    password = getpass.getpass("Contraseña del KeyStore: ")
 
-def save_keystore(data):
-    with open(KEYSTORE_FILE, "w", encoding="utf-8") as file:
-        json.dump(data, file, indent=2)
+    if not check_password(
+        password,
+        keystore["keystore_password"]
+    ):
+        sys.exit("Error: contraseña del almacén incorrecta.")
+
+    return keystore
+
+
+def ask_existing_alias(keystore):
+    alias = input("Alias: ").strip()
+
+    if alias not in keystore["keys"]:
+        sys.exit(
+            f"Error: el alias '{alias}' no existe."
+        )
+
+    return alias
+
+
+def unlock_private_key(entry, alias):
+    key_password = getpass.getpass(
+        f"Contraseña del alias '{alias}': "
+    )
+
+    try:
+        return crypto_utils.pem_to_key(
+            entry["private_key"],
+            key_password
+        )
+
+    except (ValueError, TypeError):
+        sys.exit("Error: contraseña del alias incorrecta.")
+
+
+def confirm(question):
+    answer = input(f"{question} (s/N): ").strip().lower()
+    return answer == "s"
+
+
+def write_output_file(filename, content):
+    if os.path.exists(filename) and not confirm(
+        f"El archivo '{filename}' ya existe. ¿Sobrescribir?"
+    ):
+        sys.exit("Operación cancelada: no se ha sobrescrito el archivo.")
+
+    with open(filename, "wb") as file:
+        file.write(content.encode())
 
 
 def genkeypair():
-    keystore = load_keystore()
+    keystore = read_keystore()
 
     if keystore is None:
         print("No existe almacén; se creará uno nuevo.")
 
-        keystore = {
-            "keystore_password": hash_password(
-                ask_password("del KeyStore")
-            ),
-            "keys": {}
-        }
+        keystore = create_keystore(ask_password("del KeyStore"))
 
     else:
         password = getpass.getpass("Contraseña del KeyStore: ")
@@ -125,67 +142,26 @@ def genkeypair():
     if country and len(country) != 2:
         sys.exit("Error: el país debe ser un código de 2 letras.")
 
-    attributes = []
+    dname = crypto_utils.build_dname({
+        "CN": cn,
+        "OU": ou,
+        "O": organization,
+        "L": city,
+        "ST": state,
+        "C": country.upper()
+    })
 
-    if cn:
-        attributes.append(
-            x509.NameAttribute(NameOID.COMMON_NAME, cn)
-        )
-
-    if ou:
-        attributes.append(
-            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, ou)
-        )
-
-    if organization:
-        attributes.append(
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization)
-        )
-
-    if city:
-        attributes.append(
-            x509.NameAttribute(NameOID.LOCALITY_NAME, city)
-        )
-
-    if state:
-        attributes.append(
-            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, state)
-        )
-
-    if country:
-        attributes.append(
-            x509.NameAttribute(NameOID.COUNTRY_NAME, country.upper())
-        )
-
-    if not attributes:
+    if dname is None:
         sys.exit("Error: debes indicar al menos un dato del titular.")
-
-    name = x509.Name(attributes)
 
     key_password = ask_password(f"del alias '{alias}'")
 
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048
-    )
-
-    private_pem = private_key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.BestAvailableEncryption(
-            key_password.encode()
-        )
-    ).decode()
-
-    public_pem = private_key.public_key().public_bytes(
-        serialization.Encoding.PEM,
-        serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode()
+    private_key = crypto_utils.generate_rsa_keypair()
 
     keystore["keys"][alias] = {
-        "private_key": private_pem,
-        "public_key": public_pem,
-        "dname": name.rfc4514_string()
+        "private_key": crypto_utils.key_to_pem(private_key, key_password),
+        "public_key": crypto_utils.public_key_to_pem(private_key),
+        "dname": dname
     }
 
     save_keystore(keystore)
@@ -197,60 +173,70 @@ def genkeypair():
 
 
 def certreq():
-    keystore = load_keystore()
-
-    if keystore is None:
-        sys.exit(
-            f"Error: no existe el almacén '{KEYSTORE_FILE}'. "
-            "Ejecuta primero --genkeypair."
-        )
-
-    password = getpass.getpass("Contraseña del KeyStore: ")
-
-    if not check_password(
-        password,
-        keystore["keystore_password"]
-    ):
-        sys.exit("Error: contraseña del almacén incorrecta.")
-
-    alias = input("Alias: ").strip()
-
-    if alias not in keystore["keys"]:
-        sys.exit(
-            f"Error: el alias '{alias}' no existe."
-        )
-
+    keystore = open_keystore()
+    alias = ask_existing_alias(keystore)
     entry = keystore["keys"][alias]
-
-    key_password = getpass.getpass(
-        f"Contraseña del alias '{alias}': "
-    )
-
-    try:
-        private_key = serialization.load_pem_private_key(
-            entry["private_key"].encode(),
-            password=key_password.encode()
-        )
-
-    except (ValueError, TypeError):
-        sys.exit("Error: contraseña del alias incorrecta.")
-
-    csr = (
-        x509.CertificateSigningRequestBuilder()
-        .subject_name(
-            x509.Name.from_rfc4514_string(entry["dname"])
-        )
-        .sign(private_key, hashes.SHA256())
-    )
+    private_key = unlock_private_key(entry, alias)
 
     filename = f"{alias}.csr"
 
-    with open(filename, "wb") as file:
-        file.write(
-            csr.public_bytes(serialization.Encoding.PEM)
-        )
+    write_output_file(
+        filename,
+        crypto_utils.create_csr(private_key, entry["dname"])
+    )
 
     print(f"CSR generado en '{filename}' (formato PEM).")
+
+
+def list_entries():
+    keystore = open_keystore()
+    keys = keystore["keys"]
+
+    print(f"El almacén contiene {len(keys)} entrada(s).")
+
+    for alias, entry in keys.items():
+        print(f"  - {alias}: {entry['dname']}")
+
+
+def delete_entry():
+    keystore = open_keystore()
+    alias = ask_existing_alias(keystore)
+
+    if not confirm(f"¿Eliminar el alias '{alias}' y su par de claves?"):
+        sys.exit("Operación cancelada: no se ha eliminado nada.")
+
+    del keystore["keys"][alias]
+    save_keystore(keystore)
+
+    print(f"Alias '{alias}' eliminado del almacén.")
+
+
+def selfcert():
+    keystore = open_keystore()
+    alias = ask_existing_alias(keystore)
+    entry = keystore["keys"][alias]
+    private_key = unlock_private_key(entry, alias)
+
+    days = input("Días de validez [365]: ").strip() or "365"
+
+    if not days.isdigit() or not 1 <= int(days) <= 3650:
+        sys.exit("Error: la validez debe ser un número entre 1 y 3650.")
+
+    filename = f"{alias}.crt"
+
+    write_output_file(
+        filename,
+        crypto_utils.create_self_signed_cert(
+            private_key,
+            entry["dname"],
+            int(days)
+        )
+    )
+
+    print(
+        f"Certificado autofirmado generado en '{filename}' "
+        f"(formato PEM, {days} días)."
+    )
 
 
 def main():
@@ -259,7 +245,9 @@ def main():
         description="Simulador en Python de la herramienta keytool de Java."
     )
 
-    parser.add_argument(
+    commands = parser.add_mutually_exclusive_group()
+
+    commands.add_argument(
         "--genkeypair",
         "--genkey",
         dest="genkeypair",
@@ -267,10 +255,29 @@ def main():
         help="Genera un par de claves RSA 2048."
     )
 
-    parser.add_argument(
+    commands.add_argument(
         "--certreq",
         action="store_true",
         help="Genera una solicitud de certificado CSR."
+    )
+
+    commands.add_argument(
+        "--list",
+        dest="list_entries",
+        action="store_true",
+        help="Lista los alias del almacén y sus titulares."
+    )
+
+    commands.add_argument(
+        "--delete",
+        action="store_true",
+        help="Elimina un alias y su par de claves del almacén."
+    )
+
+    commands.add_argument(
+        "--selfcert",
+        action="store_true",
+        help="Genera un certificado X.509 autofirmado (.crt)."
     )
 
     args = parser.parse_args()
@@ -279,6 +286,12 @@ def main():
         genkeypair()
     elif args.certreq:
         certreq()
+    elif args.list_entries:
+        list_entries()
+    elif args.delete:
+        delete_entry()
+    elif args.selfcert:
+        selfcert()
     else:
         parser.print_help()
 
