@@ -26,10 +26,10 @@ La única dependencia directa es `cryptography` (`pip install cryptography`).
 | Archivo | Contenido |
 |---|---|
 | `mykeytool.py` | Programa principal: comandos y preguntas al usuario. |
-| `keystore.py` | Almacén: creación, lectura, validación, guardado y hash de la contraseña. |
+| `keystore.py` | Almacén: creación, cifrado, descifrado, validación y guardado. |
 | `crypto_utils.py` | Criptografía: claves RSA, CSR y certificado autofirmado. |
 
-Al usar el programa se crea `keystore.json` (el almacén), que no se sube al repositorio.
+Al usar el programa se crea `mykeytool.keystore` (el almacén), un archivo binario cifrado que no se sube al repositorio.
 
 ## 🚀 Uso
 
@@ -80,7 +80,7 @@ Errores controlados:
 ```text
 > python mykeytool.py --certreq
 Contraseña del KeyStore: ******
-Error: contraseña del almacén incorrecta.
+Error: contraseña del almacén incorrecta (o el almacén ha sido manipulado).
 
 > python mykeytool.py --genkeypair
 Contraseña del KeyStore: ******
@@ -91,9 +91,13 @@ Error: el alias 'prueba' ya existe en el almacén.
 ## 🔐 Seguridad
 
 - Claves **RSA de 2048 bits**; CSR y certificados firmados con **SHA-256** en formato **PEM**.
-- La contraseña del almacén no se guarda: solo su **hash PBKDF2** con sal aleatoria.
-- Cada clave privada se guarda **cifrada** con la contraseña de su alias.
-- Si `keystore.json` falta o está dañado, se avisa sin que el programa falle.
+- El almacén se guarda **cifrado entero** con **AES-256-GCM**: al abrir el archivo no se puede leer ningún dato (ni alias, ni titulares, ni claves).
+- La clave de cifrado se deriva de la contraseña del almacén con **PBKDF2-HMAC-SHA256** (200 000 iteraciones y sal aleatoria). La contraseña no se guarda en ningún sitio.
+- AES-GCM detecta cualquier modificación del archivo: si alguien lo manipula, no se puede abrir.
+- Además, cada clave privada va **cifrada** con la contraseña de su alias (doble protección, como en Java).
+- Si el almacén falta o está dañado, se avisa sin que el programa falle.
+
+Formato del archivo: `MYKS` (4 bytes) · sal (16 bytes) · nonce (12 bytes) · datos cifrados.
 
 ## 🧪 Matriz de pruebas
 
@@ -114,4 +118,6 @@ Error: el alias 'prueba' ya existe en el almacén.
 | 13 | `--list` | Datos correctos | Muestra los alias | ✅ |
 | 14 | `--delete` | Confirmar con `s` / responder `n` | Elimina / cancela | ✅ |
 | 15 | `--selfcert` | Datos correctos / días no válidos | Genera `<alias>.crt` / mensaje de error | ✅ |
-| 16 | Todos | `keystore.json` dañado | Error: almacén dañado | ✅ |
+| 16 | Todos | `mykeytool.keystore` dañado | Error: almacén dañado | ✅ |
+| 17 | Todos | `mykeytool.keystore` manipulado (un byte cambiado) | Error: contraseña incorrecta o almacén manipulado | ✅ |
+| 18 | — | Abrir `mykeytool.keystore` con un editor | Contenido ilegible (binario cifrado) | ✅ |
