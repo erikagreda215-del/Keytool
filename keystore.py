@@ -1,104 +1,127 @@
-"""Gestión del almacén de claves (KeyStore) guardado en un archivo JSON."""
+"""
+Gestión del almacén de claves (KeyStore).
 
-import base64
+El almacén se guarda en un archivo binario cifrado entero con la contraseña
+del KeyStore, de modo que al abrirlo no se puede leer nada.
+
+Formato del archivo:
+    MAGIC (4 bytes) | sal (16 bytes) | nonce (12 bytes) | datos cifrados
+
+- La clave de cifrado se deriva de la contraseña con PBKDF2-HMAC-SHA256.
+- Los datos se cifran con AES-256-GCM, que además detecta si el archivo se ha
+  modificado: si la contraseña es incorrecta o el archivo se ha manipulado,
+  el descifrado falla.
+"""
+
 import hashlib
-import hmac
 import json
 import os
 
-KEYSTORE_FILE = "keystore.json"
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+KEYSTORE_FILE = "mykeytool.keystore"
+
+MAGIC = b"MYKS"
+SALT_SIZE = 16
+NONCE_SIZE = 12
+HEADER_SIZE = len(MAGIC) + SALT_SIZE + NONCE_SIZE
+PBKDF2_ITERATIONS = 200_000
 
 
 class KeystoreError(Exception):
     """El almacén existe pero está dañado o no se puede leer."""
 
 
-def hash_password(password, salt=None):
-    """Deriva un hash PBKDF2-HMAC-SHA256 de la contraseña con una sal aleatoria."""
-    if salt is None:
-        salt = os.urandom(16)
+class WrongPasswordError(Exception):
+    """La contraseña del almacén es incorrecta (o el archivo ha sido manipulado)."""
 
-    digest = hashlib.pbkdf2_hmac(
+
+def derive_key(password, salt):
+    """Deriva una clave AES de 256 bits a partir de la contraseña y la sal."""
+    return hashlib.pbkdf2_hmac(
         "sha256",
         password.encode(),
         salt,
-        200_000
+        PBKDF2_ITERATIONS,
+        dklen=32
     )
 
-    return {
-        "salt": base64.b64encode(salt).decode(),
-        "hash": base64.b64encode(digest).decode()
-    }
+
+def keystore_exists():
+    return os.path.exists(KEYSTORE_FILE)
 
 
-def check_password(password, stored):
-    """Compara la contraseña con el hash guardado, en tiempo constante."""
-    salt = base64.b64decode(stored["salt"])
-    new_hash = hash_password(password, salt)["hash"]
-    return hmac.compare_digest(new_hash, stored["hash"])
-
-
-def create_keystore(password):
-    """Devuelve un almacén nuevo y vacío protegido con la contraseña."""
-    return {
-        "keystore_password": hash_password(password),
-        "keys": {}
-    }
+def create_keystore():
+    """Devuelve un almacén nuevo y vacío."""
+    return {"keys": {}}
 
 
 def is_valid_keystore(data):
-    """Comprueba que el contenido leído tiene la estructura de un almacén."""
-    if not isinstance(data, dict):
+    """Comprueba que el contenido descifrado tiene la estructura de un almacén."""
+    if not isinstance(data, dict) or not isinstance(data.get("keys"), dict):
         return False
-
-    password = data.get("keystore_password")
-    keys = data.get("keys")
-
-    if not isinstance(password, dict) or not isinstance(keys, dict):
-        return False
-
-    if not all(
-        isinstance(password.get(field), str)
-        for field in ("salt", "hash")
-    ):
-        return False
-
-    # La sal debe ser Base64 válido; si no, lanza ValueError.
-    base64.b64decode(password["salt"], validate=True)
 
     return all(
         isinstance(entry, dict) and all(
             isinstance(entry.get(field), str)
             for field in ("private_key", "public_key", "dname")
         )
-        for entry in keys.values()
+        for entry in data["keys"].values()
     )
 
 
-def load_keystore():
+def load_keystore(password):
     """
-    Lee el almacén del disco.
-    Devuelve None si no existe y lanza KeystoreError si está dañado.
+    Lee y descifra el almacén del disco.
+    Devuelve None si no existe, lanza WrongPasswordError si la contraseña
+    no es correcta y KeystoreError si el archivo está dañado.
     """
-    if not os.path.exists(KEYSTORE_FILE):
+    if not keystore_exists():
         return None
 
     try:
-        with open(KEYSTORE_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
+        with open(KEYSTORE_FILE, "rb") as file:
+            content = file.read()
+    except OSError:
+        raise KeystoreError(f"no se puede leer el almacén '{KEYSTORE_FILE}'.")
 
-        if not is_valid_keystore(data):
-            raise ValueError
+    if len(content) <= HEADER_SIZE or not content.startswith(MAGIC):
+        raise KeystoreError(f"el almacén '{KEYSTORE_FILE}' está dañado.")
 
-        return data
+    salt = content[len(MAGIC):len(MAGIC) + SALT_SIZE]
+    nonce = content[len(MAGIC) + SALT_SIZE:HEADER_SIZE]
+    ciphertext = content[HEADER_SIZE:]
 
-    except (ValueError, OSError):
-        raise KeystoreError(
-            f"el almacén '{KEYSTORE_FILE}' está dañado o no se puede leer."
+    try:
+        plaintext = AESGCM(derive_key(password, salt)).decrypt(
+            nonce, ciphertext, MAGIC
+        )
+    except InvalidTag:
+        raise WrongPasswordError(
+            "contraseña del almacén incorrecta (o el almacén ha sido manipulado)."
         )
 
+    try:
+        data = json.loads(plaintext.decode("utf-8"))
+    except ValueError:
+        raise KeystoreError(f"el almacén '{KEYSTORE_FILE}' está dañado.")
 
-def save_keystore(data):
-    """Guarda el almacén en el disco."""
-    with open(KEYSTORE_FILE, "w", encoding="utf-8") as file:
-        json.dump(data, file, indent=2)
+    if not is_valid_keystore(data):
+        raise KeystoreError(f"el almacén '{KEYSTORE_FILE}' está dañado.")
+
+    return data
+
+
+def save_keystore(data, password):
+    """Cifra el almacén con la contraseña y lo guarda en el disco."""
+    salt = os.urandom(SALT_SIZE)
+    nonce = os.urandom(NONCE_SIZE)
+    plaintext = json.dumps(data).encode("utf-8")
+
+    ciphertext = AESGCM(derive_key(password, salt)).encrypt(
+        nonce, plaintext, MAGIC
+    )
+
+    with open(KEYSTORE_FILE, "wb") as file:
+        file.write(MAGIC + salt + nonce + ciphertext)

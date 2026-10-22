@@ -7,8 +7,9 @@ import crypto_utils
 from keystore import (
     KEYSTORE_FILE,
     KeystoreError,
-    check_password,
+    WrongPasswordError,
     create_keystore,
+    keystore_exists,
     load_keystore,
     save_keystore,
 )
@@ -33,19 +34,12 @@ def ask_password(label):
         return password
 
 
-def read_keystore():
-    """Carga el almacén; termina con un mensaje si está dañado."""
-    try:
-        return load_keystore()
-    except KeystoreError as error:
-        sys.exit(f"Error: {error}")
-
-
 def open_keystore():
-    """Carga el almacén existente y comprueba su contraseña."""
-    keystore = read_keystore()
-
-    if keystore is None:
+    """
+    Pide la contraseña y descifra el almacén existente.
+    Devuelve el almacén y la contraseña, necesaria para volver a guardarlo.
+    """
+    if not keystore_exists():
         sys.exit(
             f"Error: no existe el almacén '{KEYSTORE_FILE}'. "
             "Ejecuta primero --genkeypair."
@@ -53,13 +47,10 @@ def open_keystore():
 
     password = getpass.getpass("Contraseña del KeyStore: ")
 
-    if not check_password(
-        password,
-        keystore["keystore_password"]
-    ):
-        sys.exit("Error: contraseña del almacén incorrecta.")
-
-    return keystore
+    try:
+        return load_keystore(password), password
+    except (KeystoreError, WrongPasswordError) as error:
+        sys.exit(f"Error: {error}")
 
 
 def ask_existing_alias(keystore):
@@ -104,21 +95,14 @@ def write_output_file(filename, content):
 
 
 def genkeypair():
-    keystore = read_keystore()
-
-    if keystore is None:
-        print("No existe almacén; se creará uno nuevo.")
-
-        keystore = create_keystore(ask_password("del KeyStore"))
+    if keystore_exists():
+        keystore, store_password = open_keystore()
 
     else:
-        password = getpass.getpass("Contraseña del KeyStore: ")
+        print("No existe almacén; se creará uno nuevo.")
 
-        if not check_password(
-            password,
-            keystore["keystore_password"]
-        ):
-            sys.exit("Error: contraseña del almacén incorrecta.")
+        store_password = ask_password("del KeyStore")
+        keystore = create_keystore()
 
     alias = input("Alias: ").strip()
 
@@ -164,7 +148,7 @@ def genkeypair():
         "dname": dname
     }
 
-    save_keystore(keystore)
+    save_keystore(keystore, store_password)
 
     print(
         f"Par de claves RSA 2048 generado y guardado "
@@ -173,7 +157,7 @@ def genkeypair():
 
 
 def certreq():
-    keystore = open_keystore()
+    keystore, _ = open_keystore()
     alias = ask_existing_alias(keystore)
     entry = keystore["keys"][alias]
     private_key = unlock_private_key(entry, alias)
@@ -189,7 +173,7 @@ def certreq():
 
 
 def list_entries():
-    keystore = open_keystore()
+    keystore, _ = open_keystore()
     keys = keystore["keys"]
 
     print(f"El almacén contiene {len(keys)} entrada(s).")
@@ -199,20 +183,20 @@ def list_entries():
 
 
 def delete_entry():
-    keystore = open_keystore()
+    keystore, store_password = open_keystore()
     alias = ask_existing_alias(keystore)
 
     if not confirm(f"¿Eliminar el alias '{alias}' y su par de claves?"):
         sys.exit("Operación cancelada: no se ha eliminado nada.")
 
     del keystore["keys"][alias]
-    save_keystore(keystore)
+    save_keystore(keystore, store_password)
 
     print(f"Alias '{alias}' eliminado del almacén.")
 
 
 def selfcert():
-    keystore = open_keystore()
+    keystore, _ = open_keystore()
     alias = ask_existing_alias(keystore)
     entry = keystore["keys"][alias]
     private_key = unlock_private_key(entry, alias)
