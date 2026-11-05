@@ -3,8 +3,8 @@ import getpass
 import os
 import sys
 
-import crypto_utils
-from keystore import (
+import utilidades_criptograficas
+from gestor_almacen import (
     KEYSTORE_FILE,
     KeystoreError,
     WrongPasswordError,
@@ -70,7 +70,7 @@ def unlock_private_key(entry, alias):
     )
 
     try:
-        return crypto_utils.pem_to_key(
+        return utilidades_criptograficas.pem_to_key(
             entry["private_key"],
             key_password
         )
@@ -126,7 +126,7 @@ def genkeypair():
     if country and len(country) != 2:
         sys.exit("Error: el país debe ser un código de 2 letras.")
 
-    dname = crypto_utils.build_dname({
+    dname = utilidades_criptograficas.build_dname({
         "CN": cn,
         "OU": ou,
         "O": organization,
@@ -140,11 +140,11 @@ def genkeypair():
 
     key_password = ask_password(f"del alias '{alias}'")
 
-    private_key = crypto_utils.generate_rsa_keypair()
+    private_key = utilidades_criptograficas.generate_rsa_keypair()
 
     keystore["keys"][alias] = {
-        "private_key": crypto_utils.key_to_pem(private_key, key_password),
-        "public_key": crypto_utils.public_key_to_pem(private_key),
+        "private_key": utilidades_criptograficas.key_to_pem(private_key, key_password),
+        "public_key": utilidades_criptograficas.public_key_to_pem(private_key),
         "dname": dname
     }
 
@@ -166,7 +166,7 @@ def certreq():
 
     write_output_file(
         filename,
-        crypto_utils.create_csr(private_key, entry["dname"])
+        utilidades_criptograficas.create_csr(private_key, entry["dname"])
     )
 
     print(f"CSR generado en '{filename}' (formato PEM).")
@@ -210,7 +210,7 @@ def selfcert():
 
     write_output_file(
         filename,
-        crypto_utils.create_self_signed_cert(
+        utilidades_criptograficas.create_self_signed_cert(
             private_key,
             entry["dname"],
             int(days)
